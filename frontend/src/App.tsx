@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { FiSend, FiX } from "react-icons/fi";
+import { FiMic } from "react-icons/fi";
 
 type ChatMessage = {
   user: string;
@@ -33,6 +35,20 @@ function App() {
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // for theme
+  const [theme, setTheme] = useState<"dark" | "light">(
+    () => (localStorage.getItem("theme") as any) || "dark",
+  );
+
+  useEffect(() => {
+    localStorage.setItem("theme", theme);
+
+    document.body.style.backgroundColor =
+      theme === "dark" ? "#131313" : "#FAFAFA";
+
+    document.body.style.color = theme === "dark" ? "#FFFFFF" : "#131313";
+  }, [theme]);
 
   useEffect(() => {
     const saved = localStorage.getItem("chat");
@@ -70,13 +86,27 @@ function App() {
     setMessage("");
     setLoading(true);
 
-    setChat((prev) => [...prev, { user: userMsg, ai: "", status: "thinking" }]);
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setChat((prev) => [
+      ...prev,
+      {
+        user: userMsg,
+        ai: "",
+        status: "thinking",
+      },
+    ]);
 
     try {
       const res = await fetch("http://localhost:5000/chat-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg, sessionId }),
+        body: JSON.stringify({
+          message: userMsg,
+          sessionId,
+        }),
+        signal: controller.signal,
       });
 
       if (!res.body) throw new Error("No response body");
@@ -100,28 +130,55 @@ function App() {
           if (!line.startsWith("data:")) continue;
 
           const raw = line.replace("data:", "").trim();
-
           if (!raw) continue;
 
           const token = JSON.parse(raw);
 
           if (token === "[DONE]") {
+            setChat((prev) => {
+              const copy = [...prev];
+              copy[copy.length - 1].status = "done";
+              return copy;
+            });
+
             setLoading(false);
-            return;
+            reader.cancel(); // 🚀 force stop stream
+            break; // 🚀 exit loop immediately
           }
 
           fullText += token;
 
           setChat((prev) => {
             const copy = [...prev];
-            copy[copy.length - 1].ai = fullText;
-            copy[copy.length - 1].status = "streaming";
+            copy[copy.length - 1] = {
+              ...copy[copy.length - 1],
+              ai: fullText,
+              status: "streaming",
+            };
             return copy;
           });
         }
       }
+
+      setChat((prev) => {
+        const copy = [...prev];
+        if (copy.length > 0) {
+          copy[copy.length - 1].ai = fullText;
+          copy[copy.length - 1].status = "done";
+        }
+        return copy;
+      });
     } catch (err) {
       console.log("error:", err);
+
+      setChat((prev) => {
+        const copy = [...prev];
+        if (copy.length > 0) {
+          copy[copy.length - 1].ai = "Error generating response.";
+          copy[copy.length - 1].status = "done";
+        }
+        return copy;
+      });
     } finally {
       setLoading(false);
     }
@@ -210,10 +267,17 @@ function App() {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen bg-[#0b0f17] text-white">
+    <div className="flex flex-col h-screen transition-colors duration-200">
       {/* HEADER */}
-      <div className="p-4 text-center border-b border-gray-800 font-semibold">
-        Local AI Assistant
+      <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+        <span className="font-semibold">Local AI Assistant</span>
+
+        <button
+          onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+          className="px-3 py-1 rounded-lg text-sm border border-gray-500"
+        >
+          {theme === "dark" ? "🌙 Dark" : "☀️ Light"}
+        </button>
       </div>
 
       {/* CHAT */}
@@ -221,13 +285,27 @@ function App() {
         {chat.map((c, i) => (
           <div key={i} className="space-y-3">
             <div className="flex justify-end">
-              <div className="bg-blue-600 px-4 py-2 rounded-2xl max-w-[80%] whitespace-pre-wrap">
+              <div
+                className="px-4 py-3 rounded-2xl max-w-[80%] whitespace-pre-wrap leading-relaxed"
+                style={{
+                  backgroundColor: theme === "dark" ? "#1f1f1f" : "#ffffff",
+                  color: theme === "dark" ? "#fff" : "#131313",
+                  border: theme === "light" ? "1px solid #e5e5e5" : "none",
+                }}
+              >
                 {c.user}
               </div>
             </div>
 
             <div className="flex justify-start">
-              <div className="bg-gray-800 px-4 py-3 rounded-2xl max-w-[80%] whitespace-pre-wrap leading-relaxed">
+              <div
+                className="px-4 py-3 rounded-2xl max-w-[80%] whitespace-pre-wrap leading-relaxed"
+                style={{
+                  backgroundColor: theme === "dark" ? "#1f1f1f" : "#ffffff",
+                  color: theme === "dark" ? "#fff" : "#131313",
+                  border: theme === "light" ? "1px solid #e5e5e5" : "none",
+                }}
+              >
                 {c.status === "thinking" && <ThinkingDots />}
 
                 {c.status !== "thinking" && (
@@ -263,14 +341,19 @@ function App() {
           }}
           placeholder="Message AI..."
           disabled={loading}
-          className="flex-1 p-3 rounded-xl bg-gray-900 border border-gray-700 outline-none resize-none max-h-[400px]"
+          className="flex-1 p-3 rounded-xl border outline-none resize-none max-h-[400px]"
+          style={{
+            backgroundColor: theme === "dark" ? "#1f1f1f" : "#ffffff",
+            color: theme === "dark" ? "#fff" : "#131313",
+            borderColor: theme === "dark" ? "#333" : "#ddd",
+          }}
         />
 
         <button
           onClick={startVoice}
           className="w-10 h-10 rounded-xl bg-gray-800 hover:bg-gray-700"
         >
-          🎤
+          <FiMic size={18} />
         </button>
 
         <button
@@ -284,19 +367,7 @@ function App() {
                 : "bg-blue-600 hover:bg-blue-700"
           }`}
         >
-          {loading ? (
-            // ❌ Cancel icon
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              className="w-4 h-4"
-            >
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          ) : (
-            <SendIcon />
-          )}
+          {loading ? <FiX size={16} /> : <FiSend size={16} />}
         </button>
       </div>
     </div>

@@ -5,10 +5,13 @@ const sequelize = new Sequelize("use_gpt", "root", "", {
   host: "localhost",
   dialect: "mysql",
   logging: (msg) => console.log("[SQL]", msg),
+
+  // ✅ FORCE PH TIMEZONE (Sequelize level)
+  timezone: "+08:00",
 });
 
 /**
- * 🧠 SESSION TABLE
+ * SESSION TABLE
  */
 const Session = sequelize.define("Session", {
   id: {
@@ -25,7 +28,7 @@ const Session = sequelize.define("Session", {
 });
 
 /**
- * 💬 MESSAGE TABLE
+ *  MESSAGE TABLE
  */
 const Message = sequelize.define("Message", {
   id: {
@@ -51,7 +54,7 @@ const Message = sequelize.define("Message", {
 });
 
 /**
- * 🧩 TOKEN TABLE (REAL STREAM LOGGING)
+ *  TOKEN TABLE (REAL STREAM LOGGING)
  */
 const MessageToken = sequelize.define("message_token", {
   id: {
@@ -77,7 +80,32 @@ const MessageToken = sequelize.define("message_token", {
 });
 
 /**
- * 🔗 ASSOCIATIONS (IMPORTANT PART)
+ *  USER MEMORY
+ */
+const UserMemory = sequelize.define("user_memory", {
+  id: {
+    type: DataTypes.CHAR(36),
+    primaryKey: true,
+    defaultValue: DataTypes.UUIDV4,
+  },
+
+  sessionId: {
+    type: DataTypes.CHAR(36),
+    allowNull: false,
+  },
+
+  key: {
+    type: DataTypes.STRING, // e.g. "name", "preference"
+    allowNull: false,
+  },
+
+  value: {
+    type: DataTypes.TEXT,
+    allowNull: false,
+  },
+});
+/**
+ *  ASSOCIATIONS (IMPORTANT PART)
  *
  * One Session → Many Messages
  */
@@ -93,7 +121,7 @@ Message.belongsTo(Session, {
   targetKey: "sessionId",
 });
 
-// 🔥 NEW RELATION: Message → Tokens
+//  NEW RELATION: Message → Tokens
 Message.hasMany(MessageToken, {
   foreignKey: "messageId",
   sourceKey: "id",
@@ -107,14 +135,17 @@ MessageToken.belongsTo(Message, {
 });
 
 /**
- * 🔥 INIT DB (AUTO ALTER = DEV MIGRATION)
+ * INIT DB (AUTO ALTER = DEV MIGRATION)
  */
 async function initDB() {
   try {
     await sequelize.authenticate();
     console.log("✅ DB Connected");
 
-    await sequelize.sync({ alter: true }); // auto ALTER TABLE safely
+    // ✅ FORCE MYSQL SESSION TIMEZONE
+    await sequelize.query("SET time_zone = '+08:00'");
+
+    await sequelize.sync({ alter: true });
     console.log("🛠️ DB Synced (ALTER MODE ENABLED)");
   } catch (err) {
     console.error("❌ DB ERROR:", err);
@@ -125,6 +156,7 @@ module.exports = {
   sequelize,
   Session,
   Message,
-  MessageToken, // 👈 ADD THIS
+  MessageToken,
+  UserMemory,
   initDB,
 };
